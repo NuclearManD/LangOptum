@@ -61,11 +61,37 @@ bool	is_invalid_char(char c){
 bool	is_operator(char c){
 	return	(c == '&') || (c == '|') || (c == '+') || (c == '-') || (c == '*') ||
 			(c == '(') || (c == ')') || (c == ',') || (c == '[') || (c == ']') ||
-			(c == '=');
+			(c == '=') || (c == '!');
 }
 
 void	syntax_error(char* message){
 		printf("Syntax Error: %s\n", message);
+}
+
+int		scan_backslash_escape(int fd, char* buffer, int length){
+	char c;
+
+	if (read(fd, &c, 1) == 1){
+		switch (c){
+			case 'n':
+				c = '\n';
+				break;
+			case 't':
+				c = '\t';
+				break;
+			case 'r':
+				c = '\r';
+				break;
+			default:
+				c = c;
+				buffer[length++] = '\\';
+		};
+		buffer[length++] = c;
+	}else{
+		syntax_error("EOF while scanning backslash escape");
+		length = -1;
+	}
+	return length;
 }
 
 t_token_list*	preprocessor_extract_command(int fd){
@@ -91,27 +117,8 @@ t_token_list*	preprocessor_extract_command(int fd){
 				length = -1;
 				break;
 			}else if (c == '\\'){
-				if (read(fd, &c, 1) == 1){
-					switch (c){
-						case 'n':
-							c = '\n';
-							break;
-						case 't':
-							c = '\t';
-							break;
-						case 'r':
-							c = '\r';
-							break;
-						default:
-							c = c;
-							buffer[length++] = '\\';
-					};
-					buffer[length++] = c;
-				}else{
-					syntax_error("EOF while scanning backslash escape in string");
-					length = -1;
+				if ((length = scan_backslash_escape(fd, buffer, length)) == -1)
 					break;
-				}
 			}else
 				buffer[length++] = c;
 		}else{
@@ -140,13 +147,37 @@ t_token_list*	preprocessor_extract_command(int fd){
 							break;
 					last_char = '\n';
 				}
-			}else if(is_operator(c)){
+			}else if (is_operator(c)){
 				add_token(&tokens, buffer, length);
 				buffer[0] = c;
 				add_token(&tokens, buffer, 1);
 				length = 0;
-			}else if (c == ';'){
+			}else if (c == '\''){
 				add_token(&tokens, buffer, length);
+				buffer[0] = '\'';
+				length = 1;
+				if (read(fd, buffer + 1, 1) != 1){
+					syntax_error("EOF while scanning single quote");
+					break;
+				}else if(buffer[1] == '\\'){
+					if ((length = scan_backslash_escape(fd, buffer, length)) == -1)
+						break;
+				}else
+					length++;
+				if (read(fd, buffer + length, 1) != 1){
+					syntax_error("EOF while scanning single quote");
+					break;
+				}else if(buffer[length] != '\''){
+					syntax_error("Can only have on character inside single quotes");
+					length = 0;
+					break;
+				}
+				add_token(&tokens, buffer, length + 1);
+				length = 0;
+			}else if ((c == ';') || (c == '{') || (c == '}')){
+				add_token(&tokens, buffer, length);
+				buffer[0] = c;
+				add_token(&tokens, buffer, 1);
 				return tokens;
 			}else
 				buffer[length++] = c;
@@ -154,7 +185,7 @@ t_token_list*	preprocessor_extract_command(int fd){
 		last_char = c;
 	}
 	if (in_dquote){
-		syntax_error("Incomplete double quote");
+		syntax_error("EOF while scanning double quote");
 	}else if (length == 0)
 		return tokens;
 	syntax_error("Bad line termination");

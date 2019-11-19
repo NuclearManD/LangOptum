@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 #include "preprocessor.h"
 
 
@@ -10,8 +11,10 @@ t_token_list*	new_token(char* text, int text_len){
 	char* copy;
 	t_token_list* nova;
 
+	if (text_len == 0)
+		return NULL;
 	copy = malloc(text_len + 1);
-	strncpy(copy, text_len);
+	strncpy(copy, text, text_len);
 	copy[text_len] = 0;
 
 	nova = malloc(sizeof(t_token_list));
@@ -34,12 +37,15 @@ void			free_token_list(t_token_list* li){
 void			add_token(t_token_list** li, char* text, int text_len){
 	t_token_list* tli;
 
+	if (text_len == 0)
+		return;
 	if (*li == NULL)
 		*li = new_token(text, text_len);
 	else{
 		tli = *li;
-		while (tli->next)
-			tli = tli->next;
+		if (tli)
+			while (tli->next)
+				tli = tli->next;
 		tli->next = new_token(text, text_len);
 	}
 }
@@ -52,30 +58,119 @@ bool	is_invalid_char(char c){
 	return (c < 9) || (c > 13 && c < 32) || (c > 126);
 }
 
+bool	is_operator(char c){
+	return	(c == '&') || (c == '|') || (c == '+') || (c == '-') || (c == '*') ||
+			(c == '(') || (c == ')') || (c == ',') || (c == '[') || (c == ']') ||
+			(c == '=');
+}
+
+void	syntax_error(char* message){
+		printf("Syntax Error: %s\n", message);
+}
+
 t_token_list*	preprocessor_extract_command(int fd){
 	char	last_char = 0;
 	char	c;
-	char*	buffer;
+	char	buffer[256];
 	char*	tmp;
 	int		length = 0;
 	bool	in_c_comment = false;
 	bool	in_cpp_comment = false;
 	bool	in_dquote = false;
 
-	t_token_list* tokens;
+	t_token_list* tokens = NULL;
 
 	while (read(fd, &c, 1) == 1){
-		if (is_space(c)){
-			last_char = c;
-			continue;
+		if (in_dquote){
+			if (c == '"'){
+				in_dquote = false;
+				add_token(&tokens, buffer, length);
+				length = 0;
+			}else if (c == '\n'){
+				syntax_error("Double quote does not go past end of line");
+				length = -1;
+				break;
+			}else if (c == '\\'){
+				if (read(fd, &c, 1) == 1){
+					switch (c){
+						case 'n':
+							c = '\n';
+							break;
+						case 't':
+							c = '\t';
+							break;
+						case 'r':
+							c = '\r';
+							break;
+						default:
+							c = c;
+							buffer[length++] = '\\';
+					};
+					buffer[length++] = c;
+				}else{
+					syntax_error("EOF while scanning backslash escape in string");
+					length = -1;
+					break;
+				}
+			}else
+				buffer[length++] = c;
+		}else{
+			if (last_char == '/' && c != '/'){
+				add_token(&tokens, buffer, length);
+				buffer[0] = '/';
+				add_token(&tokens, buffer, 1);
+			}
+			if (is_space(c)){
+				add_token(&tokens, buffer, length);
+				length = 0;
+				last_char = c;
+				continue;
+			}else if (c == '"'){
+				add_token(&tokens, buffer, length);
+				buffer[0] = '"';
+				add_token(&tokens, buffer, 1);
+				length = 0;
+				in_dquote = true;
+			}else if (c == '/'){
+				add_token(&tokens, buffer, length);
+				length = 0;
+				if (last_char == '/'){
+					while (read(fd, &c, 1) == 1)
+						if (c == '\n')
+							break;
+					last_char = '\n';
+				}
+			}else if(is_operator(c)){
+				add_token(&tokens, buffer, length);
+				buffer[0] = c;
+				add_token(&tokens, buffer, 1);
+				length = 0;
+			}else if (c == ';'){
+				add_token(&tokens, buffer, length);
+				return tokens;
+			}else
+				buffer[length++] = c;
 		}
-		if (c == ';'){
-			add_token(buffer, length);
-			return tokens;
-		}
+		last_char = c;
 	}
-	if (length == 0)
+	if (in_dquote){
+		syntax_error("Incomplete double quote");
+	}else if (length == 0)
 		return tokens;
-	printf("Syntax Error: Bad line termination\n");
+	syntax_error("Bad line termination");
+	free_token_list(tokens);
 	return 0;
+}
+
+void main(int ac, char** av){
+	t_token_list* li;
+	while (1){
+		li = preprocessor_extract_command(0);
+		printf("\n----- TOKENS -----\n");
+		while (li != 0){
+			printf("%s\n", li->token);
+			li = li->next;
+		}
+		free_token_list(li);
+	}
 }

@@ -7,8 +7,7 @@ typedef struct s_token_list{
 	struct s_token_list*	next;
 } t_token_list;
 
-t_token_list*	new_token(char* text, int text_len);
 void			free_token_list(t_token_list* li);
-
+t_token_list*	preprocessor_extract_command(int fd);
 
 #endif

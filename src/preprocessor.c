@@ -28,7 +28,7 @@ void			free_token_list(t_token_list* li){
 	if (li == NULL)
 		return;
 	if (li->next)
-		free_token_list(li);
+		free_token_list(li->next);
 	if (li->token)
 		free(li->token);
 	free(li);
@@ -193,6 +193,7 @@ t_token_list*	preprocessor_extract_command(int fd){
 	return 0;
 }
 
+/*
 void main(int ac, char** av){
 	t_token_list* li;
 	while (1){
@@ -205,3 +206,4 @@ void main(int ac, char** av){
 		free_token_list(li);
 	}
 }
+*/
